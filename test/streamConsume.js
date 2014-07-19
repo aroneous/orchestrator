@@ -242,5 +242,61 @@ describe('orchestrator', function() {
 			});
 		});
 
+		it('should should require the Readable side of a Duplex stream to be closed to trigger completion', function(done) {
+			var orchestrator;
+			var readableClosed = false;
+			var readCalled = false;
+			var writableClosed = false;
+
+			// Arrange
+			orchestrator = new Orchestrator();
+
+			orchestrator.add('test', function() {
+				var ds = Duplex();
+				ds._write = function(chunk, enc, next) {
+					next();
+				};
+
+				function closeReadable() {
+					// Delay closing the Readable side
+					setTimeout(function() {
+						readableClosed = true;
+						ds.push(null);
+					}, 1);
+				}
+
+				ds.on("finish", function() {
+					writableClosed = true;
+					if (readCalled)
+						closeReadable();
+				});
+
+
+				ds._read = function() {
+					readCalled = true;
+					// Only close the Readable if the Writable has already been closed
+					if (writableClosed)
+						closeReadable();
+				}
+
+				// Close the Writable side - after returning the stream, so that orchestrator sees the close
+				setTimeout(function() {
+					ds.end();
+				}, 1);
+
+				// Return the Duplex
+				return ds;
+			});
+
+			// Act
+			orchestrator.start('test', function(err) {
+				// Assert
+				readableClosed.should.be.true;
+				should.not.exist(err);
+				orchestrator.isRunning.should.equal(false);
+				done();
+			});
+		});
+
 	});
 });
