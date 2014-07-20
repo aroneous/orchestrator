@@ -3,16 +3,17 @@
 "use strict";
 
 var Orchestrator = require('../');
-var Readable = require('stream').Readable;
-var Writable = require('stream').Writable;
-var Duplex = require('stream').Duplex;
+var Stream = require('stream');
+var Readable = Stream.Readable;
+var Writable = Stream.Writable;
+var Duplex = Stream.Duplex;
 var Q = require('q');
 var fs = require('fs');
 var should = require('should');
 require('mocha');
 
 describe('orchestrator', function() {
-	describe('given a stream', function() {
+	describe('when given a stream', function() {
 
 		it('should consume a Readable stream to relieve backpressure, in objectMode', function(done) {
 			var orchestrator, a;
@@ -242,7 +243,7 @@ describe('orchestrator', function() {
 			});
 		});
 
-		it('should should require the Readable side of a Duplex stream to be closed to trigger completion', function(done) {
+		it('should require the Readable side of a Duplex stream to be closed to trigger completion', function(done) {
 			var orchestrator;
 			var readableClosed = false;
 			var readCalled = false;
@@ -293,6 +294,82 @@ describe('orchestrator', function() {
 				// Assert
 				readableClosed.should.be.true;
 				should.not.exist(err);
+				orchestrator.isRunning.should.equal(false);
+				done();
+			});
+		});
+
+		it('should handle a classic stream that is not piped anywhere', function(done) {
+			var orchestrator;
+			var readableClosed = false;
+			var readCalled = false;
+			var writableClosed = false;
+            var i;
+
+			// Arrange
+			orchestrator = new Orchestrator();
+
+			orchestrator.add('test', function() {
+                var rs = new Stream();
+
+                process.nextTick(function() {
+                    for (i = 1; i <= 100; i++) {
+                        rs.emit("data", i);
+                    }
+                    rs.emit("end");
+                });
+
+				// Return the Readable
+				return rs;
+			});
+
+			// Act
+			orchestrator.start('test', function(err) {
+				// Assert
+				should.not.exist(err);
+				orchestrator.isRunning.should.equal(false);
+				done();
+			});
+		});
+
+		it('should handle a classic stream that is piped somewhere', function(done) {
+			var orchestrator;
+			var readableClosed = false;
+			var readCalled = false;
+			var writableClosed = false;
+            var lengthRead = 0;
+            var i;
+
+			// Arrange
+			orchestrator = new Orchestrator();
+
+			orchestrator.add('test', function() {
+                var rs = new Stream();
+
+                process.nextTick(function() {
+                    for (i = 0; i < 100; i++) {
+                        rs.emit("data", i);
+                    }
+                    rs.emit("end");
+                });
+
+                var ws = new Writable({objectMode: true, highWaterMark: 5});
+                ws._write = function(chunk, enc, next) {
+                    lengthRead++;
+                    next();
+                };
+
+                rs.pipe(ws);
+
+				// Return the Readable
+				return rs;
+			});
+
+			// Act
+			orchestrator.start('test', function(err) {
+				// Assert
+				should.not.exist(err);
+                lengthRead.should.equal(100);
 				orchestrator.isRunning.should.equal(false);
 				done();
 			});
